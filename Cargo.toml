@@ -1,0 +1,22 @@
+[package]
+name = "h2-fill-gov"
+version = "0.1.0"
+edition = "2021"
+license = "PROPRIETARY"
+authors = ["LUXERON"]
+description = "[QCEOM RL] Hydrogen fast-fill governor - 700 bar heavy-duty H2 fill physics + governed exact-DP fill-map vs the J2601-style table method, patent-posture: static governed fill-map, no in-fill adaptation."
+
+[dependencies]
+qceom-core = { git = "ssh://git@github.com/LUXERON/QCEOM-RL-CORE-KERNEL.git" }
+
+[[bin]]
+name = "h2-bench"
+path = "src/main.rs"
+
+[[bin]]
+name = "emit_test_vector"
+path = "src/bin/emit_test_vector.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
