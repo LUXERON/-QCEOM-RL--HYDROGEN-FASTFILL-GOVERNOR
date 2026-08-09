@@ -59,7 +59,7 @@ against it, before or after the run.
 | C4 | Kernel = plain-DP reference (L9) | **PASS** | worst cost gap 1.8e-15 |
 | C5 | Proof pair (ungoverned wins reward AND breaches) | **MISS** | see below |
 | C6 | Bit-determinism across repeated solves | **PASS** | 2400 states compared |
-| C7 | Solve < 10 s per tank | **PASS** | worst 3.86 s |
+| C7 | Solve < 10 s per tank | **PASS** | worst 2.9 s (wall clock; the only value in this table that is not bit-reproducible) |
 
 **The C5 MISS, in full.** As frozen, C5 compares the *kernel's regulated
 rollouts*: the gates-ignored twin must beat the governed twin on reward. It

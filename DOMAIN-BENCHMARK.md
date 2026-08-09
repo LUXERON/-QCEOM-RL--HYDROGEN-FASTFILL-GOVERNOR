@@ -28,7 +28,7 @@ Objective J = 1.0·minutes + 3.0·kWh_precool (β derived from the pre-cooler's 
 | C4 | Kernel = plain-DP reference (L9) | **PASS** | worst cost gap 1.78e-15 |
 | C5 | Proof pair (ungoverned wins reward AND breaches) | **MISS** | per-ambient |
 | C6 | Bit-determinism across repeated solves | **PASS** | 2400 states compared |
-| C7 | Solve < 10 s per tank | **PASS** | worst 2.87 s |
+| C7 | Solve < 10 s per tank | **PASS** | worst 2.90 s |
 
 Deployable artifact at 25 °C: 2436 B QCH2 image, map fingerprint `0xa0954ab04324380d`, tank hash `0xb4a7cf3ccb6d74a4`, CRC32 `0x0cd9d0fd`. Safe-fallback invocations across all governed replays: **1**.
 
