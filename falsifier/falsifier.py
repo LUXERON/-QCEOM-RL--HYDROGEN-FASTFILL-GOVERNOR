@@ -49,11 +49,15 @@ evaluated at whatever band the closed loop actually enters, so it does not
 depend on the transition model being conservative; only optimality does,
 and the closed-loop replay on the continuous model is the check.
 
+The rulebook, identical to the harness's: gas <= 85 degC, P <= 87.5 MPa,
+liner <= 75 degC, dT_liner/dt <= 0.45 K/s, no stalled crossing.
+
 Pure Python, no RNG library: scenario generation is splitmix64 bit-mixing,
-so the whole run is bit-reproducible. Screening resolution: adaptive step
-dt = min(1.0 s, 0.2*tau_gas) -- the same tau-resolving rule the harness
-applies (L12), at a coarser cap; the Rust harness re-derives the check and
-runs a fixed, finer step.
+so the whole run is bit-reproducible. Screening resolution: 12 SoC bands
+and an adaptive step dt = min(DT_CAP, 0.2*tau_gas) with DT_CAP = 2.0 s --
+the same tau-resolving rule the harness applies (L12), at a coarser cap.
+The Rust harness runs 16 SoC bands at a fixed, finer dt = 0.25 s and
+re-derives the tau check as a test.
 
 Run:  python falsifier/falsifier.py
 """
