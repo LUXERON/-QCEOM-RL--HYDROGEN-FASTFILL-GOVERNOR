@@ -30,7 +30,7 @@ Objective J = 1.0·minutes + 3.0·kWh_precool (β derived from the pre-cooler's 
 | C6 | Bit-determinism across repeated solves | **PASS** | 2400 states compared |
 | C7 | Solve < 10 s per tank | **PASS** | worst 2.90 s |
 
-Deployable artifact at 25 °C: 2436 B QCH2 image, map fingerprint `0xa0954ab04324380d`, tank hash `0xb4a7cf3ccb6d74a4`, CRC32 `0x0cd9d0fd`. Safe-fallback invocations across all governed replays: **1**.
+Deployable artifact at 25 °C: 2436 B QCH2 image, map fingerprint `0xa0954ab04324380d`, tank hash `0x0723da1ccdc8bb94`, CRC32 `0xe3e6a21e`. Safe-fallback invocations across all governed replays: **1**.
 
 ### C5 diagnostic — the proof pair stated on the declared model
 

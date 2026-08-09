@@ -187,11 +187,21 @@ maximization.
 ### 4. The deployable artifact (`src/image.rs`)
 
 A 2436-byte `QCH2` image: magic `0x3248_4351` · format version · dispenser
-serial · tank+rulebook hash · map fingerprint · 2400 action bytes · CRC32.
-Validation is fail-closed and ordered — magic → version → CRC →
-fingerprint → provisioned tank hash. Re-identify the tank, or revise a
-single limit or objective weight, and the hash changes and the stale map is
-refused before a kilogram moves.
+serial · tank+rulebook+**codec** hash · map fingerprint · 2400 action bytes
+· CRC32. Validation is fail-closed and ordered — magic → version → CRC →
+fingerprint → provisioned tank hash. Re-identify the tank, revise a single
+limit or objective weight, or re-base a band grid, and the hash changes and
+the stale map is refused before a kilogram moves.
+
+The codec clause was added on 2026-08-09 after an estate-wide audit
+finding. This harness was already the estate's best-covered case — the
+only one that hashed its **action** tiers — but it did not hash the
+**state** band lattice. Since the image is a bare action-index byte per
+state, re-basing `GAS_BASE_C` or widening `LIN_BAND_C` at constant band
+count would have produced a same-length image with an unchanged hash
+that misindexes every lookup, and the whole fail-closed chain would have
+accepted it. Tank hash `0xb4a7cf3ccb6d74a4` → **`0x0723da1ccdc8bb94`**;
+the solved map and its fingerprint `0xa0954ab04324380d` are unchanged.
 
 ---
 

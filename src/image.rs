@@ -22,7 +22,8 @@
 //! honest (no in-fill adaptation; the *image* is the unit of change).
 
 use crate::fill_env::{
-    ACTIONS, ALPHA, BETA, COP_PRECOOL, FLOW_TIERS, N_STATES, PRECOOL_C, TARGET_BAND,
+    ACTIONS, ALPHA, BETA, COP_PRECOOL, FLOW_TIERS, GAS_BANDS, GAS_BAND_C, GAS_BASE_C, LIN_BANDS,
+    LIN_BAND_C, LIN_BASE_C, N_STATES, PRECOOL_C, SOC_BANDS, TARGET_BAND,
 };
 use crate::thermo::{
     TankParams, B_COVOL, LINER_RAMP_CAP, P_CEILING, T_GAS_CEILING_C, T_LINER_CEILING_C,
@@ -50,9 +51,20 @@ fn mix(h: u64, v: u64) -> u64 {
     (h.rotate_left(7) ^ v).wrapping_mul(0xBF58_476D_1CE4_E5B9)
 }
 
-/// Hash the tank parameters AND the full rulebook: the provenance binding
-/// that makes a stale map (re-identified tank OR revised limits OR
-/// re-declared objective weights) detectable before it is trusted.
+/// Hash the tank parameters, the full rulebook AND the codec: the
+/// provenance binding that makes a stale map (re-identified tank OR
+/// revised limits OR re-declared objective weights OR a re-based band
+/// grid) detectable before it is trusted.
+///
+/// This harness already hashed its **action** tiers, which the
+/// 2026-08-09 estate-wide audit called the best-covered case in the
+/// estate. It did not hash the **state** band lattice. The deployed
+/// image is a bare action-index byte per state, so the state decode is
+/// as load-bearing as the action decode: re-basing `GAS_BASE_C` or
+/// widening `LIN_BAND_C` while keeping the band counts yields a
+/// same-length image with an unchanged hash that misindexes every
+/// lookup, and magic → version → CRC → fingerprint all pass it. The
+/// band bases and widths are now hashed alongside the counts.
 pub fn tank_hash(p: &TankParams) -> u64 {
     let mut h: u64 = 0x9E37_79B9_7F4A_7C15;
     for v in [
@@ -69,16 +81,28 @@ pub fn tank_hash(p: &TankParams) -> u64 {
         COP_PRECOOL,
         ALPHA,
         BETA,
+        // CODEC: the state band lattice — base and width per dimension,
+        // not just the counts below. SoC bands are uniform fractions of
+        // capacity, so `SOC_BANDS` alone defines that axis.
+        GAS_BASE_C,
+        GAS_BAND_C,
+        LIN_BASE_C,
+        LIN_BAND_C,
     ] {
         h = mix(h, v.to_bits());
     }
+    // CODEC: the action tier tables
     for v in FLOW_TIERS {
         h = mix(h, v.to_bits());
     }
     for v in PRECOOL_C {
         h = mix(h, v.to_bits());
     }
-    mix(h, TARGET_BAND as u64)
+    // CODEC: the lattice shape
+    for n in [SOC_BANDS, GAS_BANDS, LIN_BANDS, N_STATES, ACTIONS, TARGET_BAND] {
+        h = mix(h, n as u64);
+    }
+    h
 }
 
 pub fn fingerprint(table: &[u8]) -> u64 {
@@ -224,5 +248,21 @@ mod tests {
         assert_ne!(tank_hash(&p2), thash);
         assert_eq!(accept(&img, tank_hash(&p2)).unwrap_err(), ImageError::StaleProvenance);
         assert!(accept(&img, thash).is_ok());
+    }
+
+    /// **Codec-coverage regression (estate-wide finding, 2026-08-09).**
+    /// The image is a bare action-index byte per state, so the STATE
+    /// decode is as load-bearing as the action decode. Re-basing a band
+    /// grid at constant band count would produce a same-length image with
+    /// an unchanged hash that misindexes every lookup.
+    ///
+    /// The lattice constants cannot be perturbed at runtime, so the hash
+    /// is pinned: any edit to `GAS_BASE_C`, `GAS_BAND_C`, `LIN_BASE_C`,
+    /// `LIN_BAND_C`, the band counts, `TARGET_BAND`, or either action
+    /// tier table fails here and forces a deliberate re-emission of the
+    /// golden vector rather than a silent same-hash image.
+    #[test]
+    fn tank_hash_is_pinned_to_the_rulebook_and_the_codec() {
+        assert_eq!(tank_hash(&TankParams::nominal(25.0)), 0x0723_da1c_cdc8_bb94);
     }
 }
