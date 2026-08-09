@@ -26,7 +26,8 @@ use crate::fill_env::{
     LIN_BAND_C, LIN_BASE_C, N_STATES, PRECOOL_C, SOC_BANDS, TARGET_BAND,
 };
 use crate::thermo::{
-    TankParams, B_COVOL, LINER_RAMP_CAP, P_CEILING, T_GAS_CEILING_C, T_LINER_CEILING_C,
+    TankParams, B_COVOL, CP0, CV0, DT_S, LINER_RAMP_CAP, M_H2, P_CEILING, P_NWP, RESIDUAL_SOC, R_U,
+    T_GAS_CEILING_C, T_LINER_CEILING_C, T_REF_SOC_K,
 };
 
 pub const MAGIC: u32 = 0x3248_4351; // "QCH2" little-endian
@@ -74,6 +75,35 @@ pub fn tank_hash(p: &TankParams) -> u64 {
         p.c_liner,
         p.t_amb_c,
         B_COVOL,
+        // EQUATION OF STATE + CALORIC MODEL (added 2026-08-09 by the L30
+        // omission guard). These were outside the hash and every one of
+        // them re-solves the map:
+        //
+        //   R_U, T_REF_SOC_K, P_NWP  define `n_full()` — i.e. what "100 %
+        //     SoC" MEANS. Revising any of them moves the target itself,
+        //     so the map would be aiming at a different fill.
+        //   M_H2                     mass and inlet enthalpy.
+        //   CV0                      the gas energy balance AND the
+        //     τ_gas the L12 step was chosen against.
+        //   CP0                      inlet enthalpy and the pre-cool
+        //     energy that the objective prices.
+        //   RESIDUAL_SOC             the START state the map is solved
+        //     from (`FillEnv::new(&p, RESIDUAL_SOC)`).
+        //   DT_S                     the integration step every cell is
+        //     characterized at.
+        //
+        // None is subsumed by a hashed value, so none is exempt. That a
+        // constant is a constant of NATURE (R_U, M_H2) is not a reason to
+        // leave it out: the hash binds the map to the model it was solved
+        // under, not to that model's plausibility.
+        R_U,
+        M_H2,
+        CV0,
+        CP0,
+        P_NWP,
+        T_REF_SOC_K,
+        RESIDUAL_SOC,
+        DT_S,
         T_GAS_CEILING_C,
         T_LINER_CEILING_C,
         P_CEILING,
@@ -261,8 +291,142 @@ mod tests {
     /// `LIN_BAND_C`, the band counts, `TARGET_BAND`, or either action
     /// tier table fails here and forces a deliberate re-emission of the
     /// golden vector rather than a silent same-hash image.
+    /// **2026-08-09, second pass.** This pin was eight constants short and
+    /// shipped that way. The equation-of-state and caloric group — `R_U`,
+    /// `M_H2`, `CV0`, `CP0`, `P_NWP`, `T_REF_SOC_K`, `RESIDUAL_SOC`,
+    /// `DT_S` — sat outside the hash, and three of them (`R_U`, `P_NWP`,
+    /// `T_REF_SOC_K`) jointly define `n_full()`, i.e. what "100 % SoC"
+    /// MEANS. Revising them moved the fill target itself under a
+    /// byte-identical hash. Found by
+    /// [`every_declared_model_constant_is_hashed`], not by this pin —
+    /// which is the point of having both.
+    /// Pin moved `0x0723da1ccdc8bb94` → `0x6f9f25ac945c4600`.
     #[test]
     fn tank_hash_is_pinned_to_the_rulebook_and_the_codec() {
-        assert_eq!(tank_hash(&TankParams::nominal(25.0)), 0x0723_da1c_cdc8_bb94);
+        assert_eq!(tank_hash(&TankParams::nominal(25.0)), 0x6f9f_25ac_945c_4600);
+        // The pre-fix value must be unreachable.
+        assert_ne!(tank_hash(&TankParams::nominal(25.0)), 0x0723_da1c_cdc8_bb94);
+    }
+
+    /// **The omission guard (L30, ported from R6 Czochralski 2026-08-09).**
+    ///
+    /// A pinned hash literal and this test fail on different things, and
+    /// that distinction is the whole point. The pin above catches a
+    /// *change* to a constant the hash ALREADY covers. It is structurally
+    /// blind to a constant the hash NEVER covered — a pin cannot notice an
+    /// absence. R6 shipped a hash that omitted its entire heat-transport
+    /// group with a green pinned test; revising one thermal conductivity
+    /// re-solved 61.8 % of the deployed map under a byte-identical hash,
+    /// and every fielded image would have been served.
+    ///
+    /// So this checks COVERAGE, against the source rather than against a
+    /// hand-maintained list — because a hand-maintained list is exactly
+    /// what was one group short. Both files are pulled in with
+    /// `include_str!`, so it is a compile-time string comparison: no I/O,
+    /// no ordering assumptions, nothing to keep in sync. The hash body is
+    /// extracted by brace matching and its comments are stripped, so
+    /// naming a constant in prose does not satisfy the check — it has to
+    /// be mixed in.
+    ///
+    /// Adding a `pub const` to `thermo.rs` and forgetting the hash now
+    /// fails here, naming the constant. Exempting one requires editing
+    /// `SUBSUMED` and writing down why.
+    #[test]
+    fn every_declared_model_constant_is_hashed() {
+        const MODEL_SRC: &str = include_str!("thermo.rs");
+        const HASH_SRC: &str = include_str!("image.rs");
+
+        /// Constants ALGEBRAICALLY SUBSUMED by something the hash already
+        /// mixes, and therefore not independently required.
+        ///
+        /// Empty for this harness: every declared constant in `thermo.rs`
+        /// reaches the model in its own right, so every one is hashed.
+        /// The bar for this list is narrow and is not "unlikely to be
+        /// revised" — it is *cannot move the map without moving a hashed
+        /// value*. A constant of nature that the EOS divides by still
+        /// belongs in the hash, because the hash binds the map to the
+        /// model it was solved under, not to the model's plausibility.
+        const SUBSUMED: [&str; 0] = [];
+
+        let start = HASH_SRC
+            .find("pub fn tank_hash(")
+            .expect("tank_hash must be declared in this file");
+        let rest = &HASH_SRC[start..];
+        let open = rest.find('{').expect("tank_hash must have a body");
+        let b = rest.as_bytes();
+        let mut depth = 0usize;
+        let mut end = open;
+        for (i, &ch) in b.iter().enumerate().skip(open) {
+            match ch {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = i;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert!(end > open, "tank_hash body must be brace-balanced");
+        // Strip line comments: a constant NAMED in a comment must not
+        // count as a constant HASHED.
+        let body: String = rest[open..=end]
+            .lines()
+            .map(|l| match l.find("//") {
+                Some(i) => &l[..i],
+                None => l,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // Whole-identifier match, not a substring match.
+        let mentions = |hay: &str, name: &str| {
+            let n = name.as_bytes();
+            hay.as_bytes().windows(n.len()).enumerate().any(|(i, w)| {
+                if w != n {
+                    return false;
+                }
+                let before = if i == 0 { b' ' } else { hay.as_bytes()[i - 1] };
+                let after = *hay.as_bytes().get(i + n.len()).unwrap_or(&b' ');
+                let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+                !ident(before) && !ident(after)
+            })
+        };
+
+        let mut checked = 0usize;
+        let mut missing: Vec<&str> = Vec::new();
+        for line in MODEL_SRC.lines() {
+            let l = line.trim_start();
+            let Some(r) = l.strip_prefix("pub const ") else {
+                continue;
+            };
+            let name = r
+                .split(|c: char| c == ':' || c.is_whitespace())
+                .next()
+                .expect("a const declaration has a name");
+            // `pub const fn ...` is a function, not a constant.
+            if name.is_empty() || name == "fn" || SUBSUMED.contains(&name) {
+                continue;
+            }
+            checked += 1;
+            if !mentions(&body, name) {
+                missing.push(name);
+            }
+        }
+
+        assert!(
+            checked >= 10,
+            "the scanner found only {checked} constants in thermo.rs — it has \
+             stopped parsing the file and is no longer guarding anything"
+        );
+        assert!(
+            missing.is_empty(),
+            "these constants are declared in thermo.rs but are NOT mixed into \
+             tank_hash, so revising any of them re-solves the map while every \
+             fielded image keeps validating — the R6 silent mis-serve, \
+             exactly: {missing:?}"
+        );
     }
 }
